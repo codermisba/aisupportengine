@@ -1,118 +1,109 @@
-# # import requests
-# # import json
+# backend/llm.py
 
-# # OLLAMA_URL = "http://localhost:11434/api/generate"
-# # MODEL_NAME = "llama3.2:1b"
-
-
-# # def query_llm(prompt: str) -> str:
-# #     """
-# #     Sends a prompt to the local Ollama LLM and returns the response text.
-# #     """
-# #     payload = {
-# #         "model": MODEL_NAME,
-# #         "prompt": prompt,
-# #         "stream": False
-# #     }
-
-# #     response = requests.post(OLLAMA_URL, json=payload, timeout=120)
-# #     response.raise_for_status()
-
-# #     data = response.json()
-# #     return data.get("response", "").strip()
+import pandas as pd
+from langchain_community.vectorstores import FAISS
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+import os
 
 
-# # llm.py
-# import requests
-# import pandas as pd
-# from typing import List, Dict
+class KnowledgeBaseEngine:
+    def __init__(self):
+        self._llm = None
+        self._embeddings = None
+        self.retriever = None
+        self.docs = []
+        self.initialized = False
 
-# OLLAMA_URL = "http://localhost:11434/api/generate"
-# MODEL_NAME = "llama3.2:1b"
+    # ---------------- LLM ----------------
+    @property
+    def llm(self):
+        if not self._llm:
+            self._llm = ChatOllama(
+                model="llama3.2:1b",
+                temperature=0.3,
+                num_predict=150,
+                num_ctx=2048
+            )
+        return self._llm
 
-# # ---------------------------
-# # Load Knowledge Base
-# # ---------------------------
-# KB_PATH = "knowledge_base_sample.csv"
-# kb_df = pd.read_csv(KB_PATH)
+    # ---------------- Embeddings ----------------
+    @property
+    def embeddings(self):
+        if not self._embeddings:
+            self._embeddings = OllamaEmbeddings(model="llama3.2:1b")
+        return self._embeddings
 
-# # ---------------------------
-# # Simple Agent Memory
-# # ---------------------------
-# conversation_memory: List[Dict[str, str]] = []
+    # ---------------- KB INIT (CSV) ----------------
+    def ensure_kb_initialized(self):
+        if self.initialized:
+            return
 
-# def update_memory(user: str, assistant: str):
-#     conversation_memory.append({
-#         "user": user,
-#         "assistant": assistant
-#     })
-#     # keep last 5 interactions
-#     if len(conversation_memory) > 5:
-#         conversation_memory.pop(0)
+        kb_path = os.path.join("backend", "data", "knowledge_base.csv")
+        print("Initializing Knowledge Base from CSV...")
 
-# # ---------------------------
-# # Ollama Query
-# # ---------------------------
-# def query_llm(prompt: str, temperature: float = 0.2) -> str:
-#     payload = {
-#         "model": MODEL_NAME,
-#         "prompt": prompt,
-#         "temperature": temperature,
-#         "stream": False
-#     }
-#     response = requests.post(OLLAMA_URL, json=payload, timeout=120)
-#     response.raise_for_status()
-#     return response.json().get("response", "").strip()
+        df = pd.read_csv(kb_path)
 
-# # ---------------------------
-# # Agent Reasoning
-# # ---------------------------
-# def recommend_with_agent(ticket_text: str, top_k: int = 3):
-#     kb_snippets = "\n".join(
-#         f"""
-# Title: {row['title']}
-# Category: {row.get('category', 'General')}
-# Tags: {row.get('tags', '')}
-# Content: {row['content'][:200]}
-# """
-#         for _, row in kb_df.iterrows()
-#     )
+        self.docs = []
+        texts = []
 
-#     memory_text = "\n".join(
-#         f"User: {m['user']}\nAssistant: {m['assistant']}"
-#         for m in conversation_memory
-#     )
+        for _, row in df.iterrows():
+            text = f"""
+            Title: {row.get('title')}
+            Category: {row.get('category', 'General')}
+            Tags: {row.get('tags', '')}
+            Content: {row.get('content', '')}
+            """
+            texts.append(text.strip())
+            self.docs.append(text.strip())
 
-#     prompt = f"""
-# You are an AI Support Agent.
+        self.retriever = FAISS.from_texts(
+            texts=texts,
+            embedding=self.embeddings
+        ).as_retriever(search_kwargs={"k": 3})
 
-# Previous Context:
-# {memory_text}
+        self.initialized = True
+        print(f"KB initialized with {len(self.docs)} articles")
 
-# Knowledge Base:
-# {kb_snippets}
+    # ---------------- Article Recommendation ----------------
+    def recommend_articles(self, ticket_text: str):
+        self.ensure_kb_initialized()
 
-# Ticket:
-# {ticket_text}
+        docs = self.retriever.invoke(ticket_text)
 
-# TASK:
-# 1. Recommend TOP {top_k} most relevant articles
-# 2. Use article title, category, tags
-# 3. Give relevance score between 0 and 1
-# 4. Return ONLY valid JSON in this format:
+        # ✅ RETURN STRINGS ONLY
+        return [d.page_content for d in docs]
 
-# [
-#   {{
-#     "title": "",
-#     "category": "",
-#     "tags": "",
-#     "score": 0.0,
-#     "reason": ""
-#   }}
-# ]
-# """
+    # ---------------- AI SOLUTION ----------------
+    def generate_solution(self, ticket_text: str) -> str:
+        self.ensure_kb_initialized()
 
-#     response = query_llm(prompt)
-#     update_memory(ticket_text, response)
+        articles = self.recommend_articles(ticket_text)
+        if not articles:
+            return "No relevant knowledge base articles found."
 
-#     return response
+        prompt = ChatPromptTemplate.from_template(
+            """
+            You are an IT support assistant.
+            Use the following knowledge to answer the ticket briefly and clearly.
+
+            Knowledge:
+            {context}
+
+            Ticket:
+            {ticket}
+            """
+        )
+
+        chain = prompt | self.llm | StrOutputParser()
+
+        # ✅ RETURNS PURE STRING
+        return chain.invoke({
+            "context": articles[0],
+            "ticket": ticket_text
+        })
+
+
+# Singleton instance
+kb_engine = KnowledgeBaseEngine()
