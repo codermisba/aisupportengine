@@ -1,10 +1,12 @@
 import asyncio
+from http.client import HTTPException
 from fastapi import FastAPI
 from pydantic import BaseModel
 import os
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from llm import kb_engine
 
 from slack_notifier import send_to_slack
 
@@ -140,34 +142,62 @@ def compute_similarity(ticket_text: str):
 # ======================================================
 # RECOMMENDATION ENDPOINT
 # ======================================================
+
+
 @app.post("/recommend")
 def recommend(payload: TicketRequest):
+    if kb_df is None or kb_df.empty:
+        raise HTTPException(status_code=500, detail="Knowledge base not loaded")
+
+    # ---------------- Similarity ----------------
     scores = compute_similarity(payload.ticket_text)
 
     results = []
     for i, row in kb_df.iterrows():
         results.append({
-            "article_id": row["article_id"],
-            "title": row["title"],
-            "category": row.get("category", "General"),
-            "tags": row.get("tags", ""),
+            "article_id": str(row["article_id"]),
+            "title": str(row["title"]),
+            "category": str(row.get("category", "General")),
+            "tags": str(row.get("tags", "")),
             "score": float(scores[i])
         })
 
     results.sort(key=lambda x: x["score"], reverse=True)
     top_results = results[:payload.top_k]
 
+    # ---------------- Usage Tracking ----------------
     if top_results:
         update_usage_metrics(
             top_results[0]["article_id"],
             top_results[0]["score"]
         )
 
-        # 🚨 Enable later
         if top_results[0]["score"] < 0.3:
             send_to_slack(payload.ticket_text, top_results[0])
 
-    return {"recommendations": top_results}
+    # ---------------- LLM Human Response ----------------
+    try:
+        ai_response = kb_engine.generate_solution(payload.ticket_text)
+    except Exception as e:
+        ai_response = (
+            "I could not find an exact match in the knowledge base, "
+            "but based on experience, please try restarting the service "
+            "and checking system logs."
+        )
+
+    # ---------------- Confidence Estimation ----------------
+    confidence = "low"
+    if top_results:
+        if top_results[0]["score"] >= 0.7:
+            confidence = "high"
+        elif top_results[0]["score"] >= 0.4:
+            confidence = "medium"
+
+    return {
+        "recommendations": top_results,
+        "ai_response": ai_response,
+        "confidence": confidence
+    }
 
 # ======================================================
 # REPORTING MODULE (FEATURE 4)
@@ -187,21 +217,38 @@ def kb_health():
 @app.get("/report/article-performance")
 def article_performance():
     global usage_df
+
     if usage_df is None or usage_df.empty:
         return []
 
     if "usage_count" not in usage_df.columns:
-        return {"error": "Column 'usage_count' missing"}
+        raise HTTPException(
+            status_code=500,
+            detail="Column 'usage_count' missing in usage_df"
+        )
 
-    # Ensure it's numeric for sorting
-    usage_df["usage_count"] = pd.to_numeric(usage_df["usage_count"], errors="coerce").fillna(0)
-    print("usage_df columns:", usage_df.columns)
-    print("usage_df dtypes:", usage_df.dtypes)
-    print("usage_df head:", usage_df.head())
+    # Work on a COPY to avoid pandas side-effects
+    df = usage_df.copy()
 
-    return usage_df.sort_values(
-        by="usage_count", ascending=False
-    ).to_dict(orient="records")
+    # Ensure numeric
+    df["usage_count"] = (
+        pd.to_numeric(df["usage_count"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
+    # Convert everything to native Python types
+    result = []
+    for row in df.sort_values(by="usage_count", ascending=False).to_dict(orient="records"):
+        clean_row = {}
+        for k, v in row.items():
+            if pd.isna(v):
+                clean_row[k] = None
+            else:
+                clean_row[k] = int(v) if isinstance(v, (int, float)) else str(v)
+        result.append(clean_row)
+
+    return result
 
 
 

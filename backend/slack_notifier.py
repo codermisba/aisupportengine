@@ -1,14 +1,24 @@
 import requests
 import os
 
+from dotenv import load_dotenv  # <--- THIS LINE IS MISSING
+
+# Load .env variables
+load_dotenv()
+
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 def send_to_slack(ticket_text, recommendation):
+    
+
+    if not SLACK_WEBHOOK_URL:
+        print("⚠️ Slack webhook not configured. Skipping notification.")
+        return
     try:
         score = int(recommendation["score"] * 100)
 
         payload = {
-            "text": "🤖 AI Content Gap Alert",
+            "text": "AI Content Gap Alert",
             "blocks": [
                 {
                     "type": "section",
@@ -27,7 +37,7 @@ def send_to_slack(ticket_text, recommendation):
             ]
         }
 
-        r = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=3)
+        r = requests.post(SLACK_WEBHOOK_URL, json=payload)
 
         if r.status_code != 200:
             print("⚠️ Slack error:", r.text)
