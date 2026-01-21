@@ -1,7 +1,0 @@
-article_id,title,category,tags,last_updated,usage_count,avg_relevance_score,content
-KB-001,Reset Password,Authentication,"password,login,reset",2024-06-01,0,0.0,"If a user forgets their password they can reset it using the Forgot Password link on the login page."
-KB-002,Account Locked,Authentication,"account,locked,security",2024-06-10,0,0.0,"If multiple incorrect login attempts occur the account will be locked for security reasons."
-KB-003,Update Email Address,Account,"email,update,profile",2024-05-20,0,0.0,"Users can update their registered email address from account settings after verification."
-KB-004,Payment Failure,Billing,"payment,card,failure",2024-04-15,0,0.0,"Payment may fail due to insufficient balance or incorrect card details."
-KB-005,Subscription Cancellation,Billing,"subscription,cancel,refund",2024-05-05,0,0.0,"Users can cancel their subscription anytime from the billing section."
-KB-006,Owntrail New Policy Update (2025),Policy,"mobile app,2FA,rewards,returns",2025-01-01,0,0.0,"Owntrail mobile app launch, rewards program, extended 60-day returns, and 2FA security update."

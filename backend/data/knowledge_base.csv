@@ -1,6 +1,0 @@
-id,title,content
-1,Reset Password,If a user forgets their password they can reset it using the Forgot Password link on the login page.
-2,Account Locked,If multiple incorrect login attempts occur the account will be locked for security reasons.
-3,Update Email Address,Users can update their registered email address from account settings after verification.
-4,Payment Failure,Payment may fail due to insufficient balance or incorrect card details.
-5,Subscription Cancellation,Users can cancel their subscription anytime from the billing section.

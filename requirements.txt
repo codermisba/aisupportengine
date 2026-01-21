@@ -1,8 +1,10 @@
-fastapi
-uvicorn
 streamlit
-pandas
-requests
-scikit-learn
+langchain
+langchain-community
+langchain-huggingface
+langchain-core
+sentence-transformers
+faiss-cpu
+pypdf
 python-dotenv
-slack-sdk
+transformers
